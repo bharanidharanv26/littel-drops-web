@@ -124,6 +124,8 @@ export function ElderList() {
               <SelectItem value="active">Active</SelectItem>
               <SelectItem value="transferred">Transferred</SelectItem>
               <SelectItem value="deceased">Deceased</SelectItem>
+              <SelectItem value="returned_home">Returned Home</SelectItem>
+              <SelectItem value="other">Other</SelectItem>
             </SelectContent>
           </Select>
           {canWrite && (

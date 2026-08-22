@@ -18,10 +18,9 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
   isFounder: boolean
-  isBranchAdmin: boolean
+  isTrustee: boolean
   isStaff: boolean
   canWrite: boolean
-  branchId: string | null
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -35,7 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function fetchProfile(userId: string) {
     const { data, error } = await supabase
       .from('profiles')
-      .select('*, branch:branches(*)')
+      .select('*')
       .eq('id', userId)
       .single()
     if (!error && data) {
@@ -92,11 +91,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const role = profile?.role ?? null
   const isFounder = role === 'founder'
-  const isBranchAdmin = role === 'branch_admin'
+  const isTrustee = role === 'trustee'
   const isStaff = role === 'staff'
   const isActive = profile?.is_active === true
-  const canWrite = isActive && (isFounder || isBranchAdmin || isStaff)
-  const branchId = profile?.branch_id ?? null
+  const canWrite = isActive && (isFounder || isStaff)
 
   return (
     <AuthContext.Provider
@@ -109,10 +107,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signIn,
         signOut,
         isFounder,
-        isBranchAdmin,
+        isTrustee,
         isStaff,
         canWrite,
-        branchId,
       }}
     >
       {children}

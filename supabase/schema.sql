@@ -7,11 +7,7 @@ create extension if not exists pgcrypto;
 create table if not exists public.branches (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
-  code text not null unique,
   location text not null default '',
-  address text not null default '',
-  phone text not null default '',
-  manager_name text not null default '',
   is_active boolean not null default true,
   created_at timestamptz not null default now()
 );
@@ -21,61 +17,30 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   name text not null,
   email text not null unique,
-  role text not null check (role in ('founder', 'branch_admin', 'staff')),
-  branch_id uuid references public.branches(id), -- Null for founder
+  role text not null check (role in ('founder', 'trustee', 'staff')),
   is_active boolean not null default true,
   is_higher_authority boolean not null default false,
   created_at timestamptz not null default now()
 );
 
--- Elder ID sequence
-create sequence if not exists elder_id_seq start 1;
-
-create or replace function generate_elder_id()
-returns text
-language plpgsql
-as $$
-declare
-  v_seq_val integer;
-begin
-  v_seq_val := nextval('elder_id_seq');
-  return 'LD' || lpad(v_seq_val::text, 6, '0');
-end;
-$$;
-
 -- Elders: one master record only
 create table if not exists public.elders (
   id uuid primary key default gen_random_uuid(),
-  admission_number text not null unique, -- This will be the generated ID
+  admission_number text not null unique,
   name text not null,
   age integer not null check (age > 0 and age < 150),
   gender text not null check (gender in ('male', 'female', 'other')),
   date_of_birth date,
-  blood_group text,
-  religion text,
-  marital_status text,
-  father_name text,
-  spouse_name text,
-  occupation text,
-  education text,
-  photo_url text,
-  aadhar_number text,
   address text not null,
   phone text not null,
   emergency_contact_name text not null,
   emergency_contact_phone text not null,
-  guardian_name text,
-  guardian_relationship text,
-  guardian_phone text,
-  guardian_address text,
   medical_notes text,
-  medications text,
-  allergies text,
+  photo_url text,
   admission_branch_id uuid not null references public.branches(id),
   current_branch_id uuid not null references public.branches(id),
   admission_date date not null,
-  admission_reason text,
-  status text not null check (status in ('active', 'transferred', 'deceased', 'discharged')) default 'active',
+  status text not null check (status in ('active', 'transferred', 'deceased')) default 'active',
   created_at timestamptz not null default now(),
   created_by uuid references public.profiles(id)
 );
@@ -87,6 +52,17 @@ create table if not exists public.admissions (
   admission_branch_id uuid not null references public.branches(id),
   admission_date date not null,
   admission_number text not null,
+  created_at timestamptz not null default now()
+);
+
+-- Founder-only user creation requests (to be consumed by secure edge function)
+create table if not exists public.user_invites (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  email text not null,
+  role text not null check (role in ('founder', 'trustee', 'staff')),
+  requested_by uuid not null references public.profiles(id),
+  status text not null default 'pending' check (status in ('pending', 'processed', 'cancelled')),
   created_at timestamptz not null default now()
 );
 
@@ -121,21 +97,7 @@ create table if not exists public.audit_logs (
   action text not null,
   entity_type text not null,
   entity_id uuid,
-  old_values jsonb,
-  new_values jsonb,
   details jsonb,
-  ip_address text,
-  created_at timestamptz not null default now()
-);
-
--- Notifications
-create table if not exists public.notifications (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid references public.profiles(id), -- recipient, null for global/founder
-  type text not null,
-  title text not null,
-  message text not null,
-  is_read boolean not null default false,
   created_at timestamptz not null default now()
 );
 
@@ -146,6 +108,7 @@ create index if not exists idx_transfers_elder_date on public.transfers(elder_id
 create index if not exists idx_deaths_branch_date on public.deaths(branch_id, death_date);
 create index if not exists idx_audit_logs_created_at on public.audit_logs(created_at desc);
 create index if not exists idx_admissions_branch on public.admissions(admission_branch_id);
+create index if not exists idx_user_invites_status on public.user_invites(status);
 
 -- Utility function: current user role
 create or replace function public.current_user_role()
@@ -155,34 +118,6 @@ stable
 as $$
   select role from public.profiles where id = auth.uid();
 $$;
-
--- Utility function: current user branch
-create or replace function public.current_user_branch()
-returns uuid
-language sql
-stable
-as $$
-  select branch_id from public.profiles where id = auth.uid();
-$$;
-
--- Trigger to set admission_number on elder insert if not provided
-create or replace function public.set_elder_admission_number()
-returns trigger
-language plpgsql
-as $$
-begin
-  if new.admission_number is null or new.admission_number = '' then
-    new.admission_number := generate_elder_id();
-  end if;
-  return new;
-end;
-$$;
-
-drop trigger if exists trg_set_elder_admission_number on public.elders;
-create trigger trg_set_elder_admission_number
-before insert on public.elders
-for each row
-execute function public.set_elder_admission_number();
 
 -- Enforce immutable admission fields on elders table
 create or replace function public.prevent_elder_admission_updates()
@@ -223,6 +158,12 @@ after insert on public.elders
 for each row
 execute function public.sync_admission_from_elder_insert();
 
+insert into public.admissions (elder_id, admission_branch_id, admission_date, admission_number)
+select e.id, e.admission_branch_id, e.admission_date, e.admission_number
+from public.elders e
+left join public.admissions a on a.elder_id = e.id
+where a.elder_id is null;
+
 -- Atomic transfer operation
 create or replace function public.transfer_elder(
   p_elder_id uuid,
@@ -238,7 +179,7 @@ declare
   v_from_branch_id uuid;
   v_user_id uuid;
 begin
-  if public.current_user_role() not in ('founder', 'branch_admin', 'staff') then
+  if public.current_user_role() not in ('founder', 'staff') then
     raise exception 'Permission denied';
   end if;
 
@@ -265,14 +206,12 @@ begin
   set current_branch_id = p_to_branch_id
   where id = p_elder_id;
 
-  insert into public.audit_logs (user_id, action, entity_type, entity_id, old_values, new_values, details)
+  insert into public.audit_logs (user_id, action, entity_type, entity_id, details)
   values (
     v_user_id,
     'TRANSFER_ELDER',
     'elder',
     p_elder_id,
-    jsonb_build_object('current_branch_id', v_from_branch_id),
-    jsonb_build_object('current_branch_id', p_to_branch_id),
     jsonb_build_object(
       'from_branch_id', v_from_branch_id,
       'to_branch_id', p_to_branch_id,
@@ -297,7 +236,7 @@ declare
   v_branch_id uuid;
   v_user_id uuid;
 begin
-  if public.current_user_role() not in ('founder', 'branch_admin', 'staff') then
+  if public.current_user_role() not in ('founder', 'staff') then
     raise exception 'Permission denied';
   end if;
 
@@ -320,14 +259,12 @@ begin
   set status = 'deceased'
   where id = p_elder_id;
 
-  insert into public.audit_logs (user_id, action, entity_type, entity_id, old_values, new_values, details)
+  insert into public.audit_logs (user_id, action, entity_type, entity_id, details)
   values (
     v_user_id,
     'RECORD_DEATH',
     'elder',
     p_elder_id,
-    jsonb_build_object('status', 'active'),
-    jsonb_build_object('status', 'deceased'),
     jsonb_build_object(
       'branch_id', v_branch_id,
       'death_date', p_death_date,
@@ -345,7 +282,7 @@ alter table public.admissions enable row level security;
 alter table public.transfers enable row level security;
 alter table public.deaths enable row level security;
 alter table public.audit_logs enable row level security;
-alter table public.notifications enable row level security;
+alter table public.user_invites enable row level security;
 
 -- Branches policies
 create policy if not exists branches_read_all on public.branches
@@ -365,53 +302,47 @@ with check (public.current_user_role() = 'founder');
 
 -- Elders policies
 create policy if not exists elders_read_all on public.elders
-for select using (
-  public.current_user_role() = 'founder' 
-  or current_branch_id = public.current_user_branch()
-);
+for select using (auth.uid() is not null);
 
-create policy if not exists elders_write_founder_admin_staff on public.elders
-for insert with check (
-  public.current_user_role() = 'founder'
-  or (public.current_user_role() in ('branch_admin', 'staff') and admission_branch_id = public.current_user_branch())
-);
+create policy if not exists elders_write_founder_staff on public.elders
+for insert with check (public.current_user_role() in ('founder', 'staff'));
 
-create policy if not exists elders_update_founder_admin_staff on public.elders
-for update using (
-  public.current_user_role() = 'founder'
-  or (public.current_user_role() in ('branch_admin', 'staff') and current_branch_id = public.current_user_branch())
-)
-with check (
-  public.current_user_role() = 'founder'
-  or (public.current_user_role() in ('branch_admin', 'staff') and current_branch_id = public.current_user_branch())
-);
+create policy if not exists elders_update_founder_staff on public.elders
+for update using (public.current_user_role() in ('founder', 'staff'))
+with check (public.current_user_role() in ('founder', 'staff'));
 
 -- Admissions policies
 create policy if not exists admissions_read_all on public.admissions
-for select using (
-  public.current_user_role() = 'founder'
-  or admission_branch_id = public.current_user_branch()
-);
+for select using (auth.uid() is not null);
 
 -- Transfers policies
 create policy if not exists transfers_read_all on public.transfers
-for select using (
-  public.current_user_role() = 'founder'
-  or from_branch_id = public.current_user_branch()
-  or to_branch_id = public.current_user_branch()
-);
+for select using (auth.uid() is not null);
+
+create policy if not exists transfers_write_founder_staff on public.transfers
+for insert with check (public.current_user_role() in ('founder', 'staff'));
 
 -- Deaths policies
 create policy if not exists deaths_read_all on public.deaths
-for select using (
-  public.current_user_role() = 'founder'
-  or branch_id = public.current_user_branch()
-);
+for select using (auth.uid() is not null);
+
+create policy if not exists deaths_write_founder_staff on public.deaths
+for insert with check (public.current_user_role() in ('founder', 'staff'));
 
 -- Audit policies
-create policy if not exists audit_read_founder on public.audit_logs
+create policy if not exists audit_read_founder_trustee on public.audit_logs
+for select using (public.current_user_role() in ('founder', 'trustee'));
+
+create policy if not exists audit_write_founder_staff on public.audit_logs
+for insert with check (public.current_user_role() in ('founder', 'staff'));
+
+-- Founder-only user invite queue
+create policy if not exists user_invites_founder_read on public.user_invites
 for select using (public.current_user_role() = 'founder');
 
--- Notifications policies
-create policy if not exists notifications_read_own on public.notifications
-for select using (user_id = auth.uid() or (user_id is null and public.current_user_role() = 'founder'));
+create policy if not exists user_invites_founder_write on public.user_invites
+for insert with check (public.current_user_role() = 'founder');
+
+create policy if not exists user_invites_founder_update on public.user_invites
+for update using (public.current_user_role() = 'founder')
+with check (public.current_user_role() = 'founder');

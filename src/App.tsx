@@ -13,6 +13,8 @@ import { TransfersPage } from '@/pages/transfers/TransfersPage'
 import { ReportsPage } from '@/pages/reports/ReportsPage'
 import { UsersPage } from '@/pages/users/UsersPage'
 import { AuditLogPage } from '@/pages/audit/AuditLogPage'
+import { RequestsPage } from '@/pages/requests/RequestsPage'
+import { ImportPage } from '@/pages/import/ImportPage'
 import { NotFoundPage } from '@/pages/not-found/NotFoundPage'
 
 function AppShell() {
@@ -39,19 +41,32 @@ export default function App() {
             <Route path="/elders/new" element={<ElderForm mode="create" />} />
             <Route path="/elders/:id" element={<ElderProfile />} />
             <Route path="/elders/:id/edit" element={<ElderForm mode="edit" />} />
+            <Route path="/transfers" element={<TransfersPage />} />
             <Route
-              path="/transfers"
-              element={<ProtectedRoute allowedRoles={['founder', 'staff']} />}
+              path="/requests"
+              element={
+                <ProtectedRoute allowedRoles={['founder', 'trustee']} />
+              }
             >
-              <Route index element={<TransfersPage />} />
+              <Route index element={<RequestsPage />} />
             </Route>
             <Route path="/reports" element={<ReportsPage />} />
             <Route path="/audit" element={<AuditLogPage />} />
             <Route
               path="/users"
-              element={<ProtectedRoute allowedRoles={['founder']} />}
+              element={
+                <ProtectedRoute allowedRoles={['founder']} />
+              }
             >
               <Route index element={<UsersPage />} />
+            </Route>
+            <Route
+              path="/import"
+              element={
+                <ProtectedRoute allowedRoles={['founder']} />
+              }
+            >
+              <Route index element={<ImportPage />} />
             </Route>
             <Route path="*" element={<NotFoundPage />} />
           </Route>

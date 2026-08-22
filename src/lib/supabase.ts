@@ -2,6 +2,7 @@
   Prototype-only in-memory Supabase adapter.
   It mimics the subset of Supabase APIs used by this app so the UI can run
   without a real database or Supabase project.
+  Updated to match the Little Drops Master Project Document v2.0.
 */
 
 type Row = Record<string, unknown>
@@ -33,10 +34,13 @@ interface BranchRow {
 interface ElderRow {
   id: string
   admission_number: string
+  serial_number: number | null
   name: string
   age: number
   gender: 'male' | 'female' | 'other'
   date_of_birth: string | null
+  police_memo_number: string | null
+  referred_by: string | null
   address: string
   phone: string
   emergency_contact_name: string
@@ -46,7 +50,8 @@ interface ElderRow {
   admission_branch_id: string
   current_branch_id: string
   admission_date: string
-  status: 'active' | 'transferred' | 'deceased'
+  status: 'active' | 'transferred' | 'deceased' | 'returned_home' | 'other'
+  outcome_reason: string | null
   created_at: string
   created_by: string | null
 }
@@ -81,6 +86,33 @@ interface AdmissionRow {
   created_at: string
 }
 
+interface RequestRow {
+  id: string
+  request_type: string
+  elder_id: string | null
+  from_branch_id: string | null
+  to_branch_id: string | null
+  submitted_by: string
+  reviewed_by: string | null
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled'
+  payload: Record<string, unknown> | null
+  decision_reason: string | null
+  submitted_at: string
+  reviewed_at: string | null
+  created_at: string
+}
+
+interface NotificationRow {
+  id: string
+  user_id: string
+  title: string
+  message: string
+  is_read: boolean
+  entity_type: string | null
+  entity_id: string | null
+  created_at: string
+}
+
 interface AuditLogRow {
   id: string
   user_id: string | null
@@ -107,11 +139,14 @@ type TableMap = {
   admissions: AdmissionRow[]
   transfers: TransferRow[]
   deaths: DeathRow[]
+  requests: RequestRow[]
+  notifications: NotificationRow[]
   audit_logs: AuditLogRow[]
   user_invites: UserInviteRow[]
 }
 
 type Filter = { field: string; value: unknown }
+type RangeFilter = { field: string; gte?: unknown; lte?: unknown; gt?: unknown; lt?: unknown; in?: unknown[] }
 
 const prototypeMode = true
 export const isSupabaseConfigured = prototypeMode
@@ -129,25 +164,43 @@ function today() {
 }
 
 const founderId = 'user_founder_1'
+const trusteeId = 'user_trustee_1'
+const staffId = 'user_staff_1'
+
+let serialCounter = 1
 
 const tables: TableMap = {
   branches: [
-    { id: 'b_chennai', name: 'Chennai', location: 'Anna Nagar, Chennai', is_active: true, created_at: nowIso() },
-    { id: 'b_madurai', name: 'Madurai', location: 'KK Nagar, Madurai', is_active: true, created_at: nowIso() },
-    { id: 'b_trichy', name: 'Trichy', location: 'Srirangam, Trichy', is_active: true, created_at: nowIso() },
+    { id: 'b_paraniputhur', name: 'Paraniputhur', location: 'Kalluri Salai, Koluthuvanchery, Paraniputhur, Chennai', is_active: true, created_at: nowIso() },
+    { id: 'b_gerugambakkam', name: 'Gerugambakkam', location: 'Gerugambakkam, Chennai', is_active: true, created_at: nowIso() },
+    { id: 'b_somangalam', name: 'Somangalam', location: 'Somangalam', is_active: true, created_at: nowIso() },
+    { id: 'b_sriperumbudur', name: 'Sriperumbudur', location: 'Sriperumbudur', is_active: true, created_at: nowIso() },
+    { id: 'b_bengaluru', name: 'Bengaluru', location: 'Bengaluru', is_active: true, created_at: nowIso() },
+    { id: 'b_morappur', name: 'Morappur', location: 'Morappur', is_active: true, created_at: nowIso() },
+    { id: 'b_arcot', name: 'Arcot', location: 'Arcot', is_active: true, created_at: nowIso() },
+    { id: 'b_batlagundu', name: 'Batlagundu', location: 'Batlagundu', is_active: true, created_at: nowIso() },
   ],
   profiles: [
     {
       id: founderId,
-      name: 'Founder Admin',
-      email: 'a@gmail.com',
+      name: 'Founder',
+      email: 'founder@littledrops.org',
       role: 'founder',
       is_active: true,
       is_higher_authority: true,
       created_at: nowIso(),
     },
     {
-      id: 'user_staff_1',
+      id: trusteeId,
+      name: 'Trustee User',
+      email: 'trustee@littledrops.org',
+      role: 'trustee',
+      is_active: true,
+      is_higher_authority: false,
+      created_at: nowIso(),
+    },
+    {
+      id: staffId,
       name: 'Staff User',
       email: 'staff@littledrops.org',
       role: 'staff',
@@ -159,41 +212,49 @@ const tables: TableMap = {
   elders: [
     {
       id: 'e_001',
-      admission_number: 'LD-CHE-2026-0001',
+      admission_number: 'LD-PAR-2026-0001',
+      serial_number: serialCounter++,
       name: 'Raman Iyer',
       age: 78,
       gender: 'male',
       date_of_birth: '1948-06-14',
+      police_memo_number: null,
+      referred_by: 'Self',
       address: '12, Lake View Road, Chennai',
       phone: '+91 9876543210',
       emergency_contact_name: 'Meena Iyer',
       emergency_contact_phone: '+91 9000000001',
       medical_notes: 'Hypertension - regular medication',
       photo_url: null,
-      admission_branch_id: 'b_chennai',
-      current_branch_id: 'b_chennai',
+      admission_branch_id: 'b_paraniputhur',
+      current_branch_id: 'b_paraniputhur',
       admission_date: '2026-01-10',
       status: 'active',
+      outcome_reason: null,
       created_at: nowIso(),
       created_by: founderId,
     },
     {
       id: 'e_002',
-      admission_number: 'LD-MAD-2026-0001',
+      admission_number: 'LD-GER-2026-0001',
+      serial_number: serialCounter++,
       name: 'Lakshmi Devi',
       age: 82,
       gender: 'female',
       date_of_birth: '1944-03-22',
-      address: 'West Masi Street, Madurai',
+      police_memo_number: null,
+      referred_by: 'NGO Partner',
+      address: 'West Masi Street, Gerugambakkam',
       phone: '+91 9876500002',
       emergency_contact_name: 'Ravi Kumar',
       emergency_contact_phone: '+91 9000000002',
       medical_notes: null,
       photo_url: null,
-      admission_branch_id: 'b_madurai',
-      current_branch_id: 'b_madurai',
+      admission_branch_id: 'b_gerugambakkam',
+      current_branch_id: 'b_gerugambakkam',
       admission_date: '2026-02-02',
       status: 'active',
+      outcome_reason: null,
       created_at: nowIso(),
       created_by: founderId,
     },
@@ -201,6 +262,8 @@ const tables: TableMap = {
   admissions: [],
   transfers: [],
   deaths: [],
+  requests: [],
+  notifications: [],
   audit_logs: [],
   user_invites: [],
 }
@@ -226,6 +289,26 @@ function notifyAuth(event: string) {
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
+}
+
+function createNotification(userId: string, title: string, message: string, entityType?: string, entityId?: string) {
+  tables.notifications.push({
+    id: uid('notif'),
+    user_id: userId,
+    title,
+    message,
+    is_read: false,
+    entity_type: entityType ?? null,
+    entity_id: entityId ?? null,
+    created_at: nowIso(),
+  })
+}
+
+function notifyAllTrustees(title: string, message: string, entityType?: string, entityId?: string) {
+  const trustees = tables.profiles.filter(p => p.role === 'trustee' && p.is_active)
+  for (const t of trustees) {
+    createNotification(t.id, title, message, entityType, entityId)
+  }
 }
 
 function enrichRows(table: keyof TableMap, rows: Row[]) {
@@ -287,12 +370,32 @@ function enrichRows(table: keyof TableMap, rows: Row[]) {
     })
   }
 
+  if (table === 'requests') {
+    return rows.map((r) => {
+      const row = r as unknown as RequestRow
+      const elder = row.elder_id ? tables.elders.find((e) => e.id === row.elder_id) : null
+      const fromBranch = row.from_branch_id ? tables.branches.find((b) => b.id === row.from_branch_id) : null
+      const toBranch = row.to_branch_id ? tables.branches.find((b) => b.id === row.to_branch_id) : null
+      const submittedBy = tables.profiles.find((p) => p.id === row.submitted_by)
+      const reviewedBy = row.reviewed_by ? tables.profiles.find((p) => p.id === row.reviewed_by) : null
+      return {
+        ...row,
+        elder: elder ? { name: elder.name, admission_number: elder.admission_number, id: elder.id } : null,
+        from_branch: fromBranch ? { name: fromBranch.name, id: fromBranch.id } : null,
+        to_branch: toBranch ? { name: toBranch.name, id: toBranch.id } : null,
+        submitted_by_profile: submittedBy ? { name: submittedBy.name } : null,
+        reviewed_by_profile: reviewedBy ? { name: reviewedBy.name } : null,
+      }
+    })
+  }
+
   return rows
 }
 
 class QueryBuilder implements PromiseLike<QueryResult<unknown>> {
-  private mode: 'select' | 'insert' | 'update' = 'select'
+  private mode: 'select' | 'insert' | 'update' | 'delete' = 'select'
   private filters: Filter[] = []
+  private rangeFilters: RangeFilter[] = []
   private orderField: string | null = null
   private ascending = true
   private limitValue: number | null = null
@@ -301,6 +404,7 @@ class QueryBuilder implements PromiseLike<QueryResult<unknown>> {
   private countExact = false
   private insertPayload: Row[] = []
   private updatePayload: Row = {}
+  private selectColumns: string | null = null
 
   private readonly table: keyof TableMap
 
@@ -310,6 +414,7 @@ class QueryBuilder implements PromiseLike<QueryResult<unknown>> {
 
   select(_columns?: string, options?: { count?: 'exact' }) {
     this.mode = 'select'
+    this.selectColumns = _columns ?? null
     this.countExact = options?.count === 'exact'
     return this
   }
@@ -326,8 +431,44 @@ class QueryBuilder implements PromiseLike<QueryResult<unknown>> {
     return this
   }
 
+  delete() {
+    this.mode = 'delete'
+    return this
+  }
+
   eq(field: string, value: unknown) {
     this.filters.push({ field, value })
+    return this
+  }
+
+  neq(field: string, value: unknown) {
+    // Simulate neq by marking negative filters
+    this.filters.push({ field: `__neq:${field}`, value })
+    return this
+  }
+
+  gt(field: string, value: unknown) {
+    this.rangeFilters.push({ field, gt: value })
+    return this
+  }
+
+  gte(field: string, value: unknown) {
+    this.rangeFilters.push({ field, gte: value })
+    return this
+  }
+
+  lt(field: string, value: unknown) {
+    this.rangeFilters.push({ field, lt: value })
+    return this
+  }
+
+  lte(field: string, value: unknown) {
+    this.rangeFilters.push({ field, lte: value })
+    return this
+  }
+
+  in(field: string, values: unknown[]) {
+    this.rangeFilters.push({ field, in: values })
     return this
   }
 
@@ -362,6 +503,7 @@ class QueryBuilder implements PromiseLike<QueryResult<unknown>> {
   private async execute(): Promise<QueryResult<any>> {
     if (this.mode === 'insert') return this.executeInsert()
     if (this.mode === 'update') return this.executeUpdate()
+    if (this.mode === 'delete') return this.executeDelete()
     return this.executeSelect()
   }
 
@@ -370,8 +512,33 @@ class QueryBuilder implements PromiseLike<QueryResult<unknown>> {
   }
 
   private applyFilters(rows: Row[]) {
-    if (!this.filters.length) return rows
-    return rows.filter((row) => this.filters.every((f) => (row as Row)[f.field] === f.value))
+    let result = rows
+    // Standard eq filters
+    const eqFilters = this.filters.filter(f => !f.field.startsWith('__neq:'))
+    if (eqFilters.length) {
+      result = result.filter((row) => eqFilters.every((f) => (row as Row)[f.field] === f.value))
+    }
+    // neq filters
+    const neqFilters = this.filters.filter(f => f.field.startsWith('__neq:'))
+    if (neqFilters.length) {
+      result = result.filter((row) => neqFilters.every((f) => {
+        const realField = f.field.replace('__neq:', '')
+        return (row as Row)[realField] !== f.value
+      }))
+    }
+    // Range filters
+    for (const rf of this.rangeFilters) {
+      result = result.filter((row) => {
+        const val = (row as Row)[rf.field]
+        if (rf.in !== undefined) return rf.in.includes(val)
+        if (rf.gte !== undefined && val < rf.gte) return false
+        if (rf.lte !== undefined && val > rf.lte) return false
+        if (rf.gt !== undefined && val <= rf.gt) return false
+        if (rf.lt !== undefined && val >= rf.lt) return false
+        return true
+      })
+    }
+    return result
   }
 
   private applyOrderAndLimit(rows: Row[]) {
@@ -415,7 +582,16 @@ class QueryBuilder implements PromiseLike<QueryResult<unknown>> {
       return { id: uid('branch'), created_at: nowIso(), is_active: true, location: '', ...row }
     }
     if (table === 'elders') {
-      return { id: uid('elder'), created_at: nowIso(), status: 'active', ...row }
+      return {
+        id: uid('elder'),
+        created_at: nowIso(),
+        status: 'active',
+        serial_number: null,
+        police_memo_number: null,
+        referred_by: null,
+        outcome_reason: null,
+        ...row,
+      }
     }
     if (table === 'audit_logs') {
       return {
@@ -424,6 +600,29 @@ class QueryBuilder implements PromiseLike<QueryResult<unknown>> {
         entity_id: null,
         details: null,
         user_id: currentSession?.user.id ?? null,
+        ...row,
+      }
+    }
+    if (table === 'requests') {
+      return {
+        id: uid('req'),
+        created_at: nowIso(),
+        submitted_at: nowIso(),
+        status: 'pending',
+        reviewed_by: null,
+        decision_reason: null,
+        reviewed_at: null,
+        payload: null,
+        ...row,
+      }
+    }
+    if (table === 'notifications') {
+      return {
+        id: uid('notif'),
+        created_at: nowIso(),
+        is_read: false,
+        entity_type: null,
+        entity_id: null,
         ...row,
       }
     }
@@ -440,6 +639,9 @@ class QueryBuilder implements PromiseLike<QueryResult<unknown>> {
 
     if (this.table === 'elders') {
       for (const row of rows as unknown as ElderRow[]) {
+        if (!row.serial_number) {
+          row.serial_number = serialCounter++
+        }
         tables.admissions.push({
           id: uid('adm'),
           elder_id: row.id,
@@ -469,6 +671,15 @@ class QueryBuilder implements PromiseLike<QueryResult<unknown>> {
       return { data: clone(enriched[0] ?? null), error: null }
     }
     return { data: clone(enriched), error: null }
+  }
+
+  private async executeDelete(): Promise<QueryResult<any>> {
+    const source = this.readTable()
+    const filtered = this.applyFilters(source)
+    const toDelete = new Set(filtered)
+    const remaining = source.filter(row => !toDelete.has(row))
+    ;(tables as any)[this.table] = remaining
+    return { data: clone(filtered), error: null }
   }
 }
 
@@ -514,6 +725,16 @@ async function handleRpc(name: string, params: Record<string, unknown>) {
       created_at: nowIso(),
     })
 
+    // Notify trustees
+    const fromBranch = tables.branches.find(b => b.id === fromBranchId)
+    const toBranch = tables.branches.find(b => b.id === toBranchId)
+    notifyAllTrustees(
+      'Elder Transferred',
+      `${elder.name} transferred from ${fromBranch?.name} to ${toBranch?.name}`,
+      'elder',
+      elder.id
+    )
+
     return { data: null, error: null }
   }
 
@@ -547,10 +768,82 @@ async function handleRpc(name: string, params: Record<string, unknown>) {
       created_at: nowIso(),
     })
 
+    notifyAllTrustees(
+      'Death Recorded',
+      `${elder.name} has been recorded as deceased`,
+      'elder',
+      elder.id
+    )
+
+    return { data: null, error: null }
+  }
+
+  if (name === 'record_return_home') {
+    const elderId = String(params.p_elder_id ?? '')
+    const returnDate = String(params.p_return_date ?? today())
+    const remarks = (params.p_remarks as string | null | undefined) ?? null
+
+    const elder = tables.elders.find((e) => e.id === elderId && e.status === 'active')
+    if (!elder) return { data: null, error: { message: 'Active elder not found' } }
+
+    elder.status = 'returned_home'
+    elder.outcome_reason = remarks
+
+    tables.audit_logs.push({
+      id: uid('audit'),
+      user_id: currentSession?.user.id ?? null,
+      action: 'RETURN_HOME',
+      entity_type: 'elder',
+      entity_id: elder.id,
+      details: { branch_id: elder.current_branch_id, return_date: returnDate, remarks },
+      created_at: nowIso(),
+    })
+
+    const branch = tables.branches.find(b => b.id === elder.current_branch_id)
+    notifyAllTrustees(
+      'Return Home Recorded',
+      `${elder.name} from ${branch?.name} has been returned home`,
+      'elder',
+      elder.id
+    )
+
+    return { data: null, error: null }
+  }
+
+  if (name === 'record_other_outcome') {
+    const elderId = String(params.p_elder_id ?? '')
+    const reason = String(params.p_reason ?? '')
+    const outcomeDate = String(params.p_outcome_date ?? today())
+
+    const elder = tables.elders.find((e) => e.id === elderId && e.status === 'active')
+    if (!elder) return { data: null, error: { message: 'Active elder not found' } }
+
+    elder.status = 'other'
+    elder.outcome_reason = reason
+
+    tables.audit_logs.push({
+      id: uid('audit'),
+      user_id: currentSession?.user.id ?? null,
+      action: 'OTHER_OUTCOME',
+      entity_type: 'elder',
+      entity_id: elder.id,
+      details: { branch_id: elder.current_branch_id, outcome_date: outcomeDate, reason },
+      created_at: nowIso(),
+    })
+
     return { data: null, error: null }
   }
 
   return { data: null, error: { message: `Unsupported RPC: ${name}` } }
+}
+
+// Valid login credentials: founder, trustee, staff with password 'little'
+const validCredentials: Record<string, { password: string; userId: string }> = {
+  'founder@littledrops.org': { password: 'little', userId: founderId },
+  'trustee@littledrops.org': { password: 'little', userId: trusteeId },
+  'staff@littledrops.org': { password: 'little', userId: staffId },
+  // Legacy credentials for backward compatibility
+  'a@gmail.com': { password: '1212', userId: founderId },
 }
 
 export const supabase = {
@@ -572,21 +865,49 @@ export const supabase = {
     },
     async signInWithPassword({ email, password }: { email: string; password: string }) {
       const normalized = email.trim().toLowerCase()
-      if (normalized !== 'a@gmail.com' || password !== '1212') {
+      const cred = validCredentials[normalized]
+
+      if (!cred || cred.password !== password) {
         return { data: { session: null }, error: { message: 'Invalid login credentials' } }
       }
 
-      const profile = tables.profiles.find((p) => p.email.toLowerCase() === normalized)
-      const userId = profile?.id ?? founderId
+      const profile = tables.profiles.find((p) => p.id === cred.userId)
+      if (profile && !profile.is_active) {
+        return { data: { session: null }, error: { message: 'Account is disabled' } }
+      }
+
+      const userId = cred.userId
       currentSession = {
         user: { id: userId, email: normalized },
         access_token: `token_${uid('auth')}`,
       }
       notifyAuth('SIGNED_IN')
 
+      // Audit login
+      tables.audit_logs.push({
+        id: uid('audit'),
+        user_id: userId,
+        action: 'LOGIN',
+        entity_type: 'auth',
+        entity_id: null,
+        details: { email: normalized },
+        created_at: nowIso(),
+      })
+
       return { data: { session: currentSession, user: currentSession.user }, error: null }
     },
     async signOut() {
+      if (currentSession) {
+        tables.audit_logs.push({
+          id: uid('audit'),
+          user_id: currentSession.user.id,
+          action: 'LOGOUT',
+          entity_type: 'auth',
+          entity_id: null,
+          details: null,
+          created_at: nowIso(),
+        })
+      }
       currentSession = null
       notifyAuth('SIGNED_OUT')
       return { error: null }

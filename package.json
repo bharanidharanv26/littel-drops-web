@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "supabase:bootstrap-founder": "node scripts/bootstrap-founder.js",
+    "supabase:seed": "node -e \"console.log('Run supabase/seed.sql in the Supabase SQL editor or use the Supabase CLI to apply it')\""
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",

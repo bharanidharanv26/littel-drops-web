@@ -20,12 +20,6 @@ import {
 import { toast } from 'sonner'
 import type { Branch, Elder, ElderGender } from '@/types'
 
-function generateAdmissionNumber(branchName: string, seq: number) {
-  const year = new Date().getFullYear()
-  const code = branchName.slice(0, 3).toUpperCase()
-  return `LD-${code}-${year}-${String(seq).padStart(4, '0')}`
-}
-
 interface ElderFormProps {
   mode: 'create' | 'edit'
 }
@@ -46,12 +40,15 @@ export function ElderForm({ mode }: ElderFormProps) {
     age: '',
     gender: 'male' as ElderGender,
     date_of_birth: '',
+    police_memo_number: '',
+    referred_by: '',
     address: '',
     phone: '',
     emergency_contact_name: '',
     emergency_contact_phone: '',
     medical_notes: '',
     admission_branch_id: '',
+    admission_number: '',
     admission_date: new Date().toISOString().split('T')[0],
     photo_url: '',
   })
@@ -72,12 +69,15 @@ export function ElderForm({ mode }: ElderFormProps) {
             age: String(e.age),
             gender: e.gender,
             date_of_birth: e.date_of_birth ?? '',
+            police_memo_number: e.police_memo_number ?? '',
+            referred_by: e.referred_by ?? '',
             address: e.address,
             phone: e.phone,
             emergency_contact_name: e.emergency_contact_name,
             emergency_contact_phone: e.emergency_contact_phone,
             medical_notes: e.medical_notes ?? '',
             admission_branch_id: e.admission_branch_id,
+            admission_number: e.admission_number,
             admission_date: e.admission_date,
             photo_url: e.photo_url ?? '',
           })
@@ -119,14 +119,22 @@ export function ElderForm({ mode }: ElderFormProps) {
     }
 
     if (mode === 'create') {
-      // Generate admission number
-      const branch = branches.find((b) => b.id === form.admission_branch_id)
-      const { count } = await supabase
+      // Check admission number uniqueness
+      const admissionNum = form.admission_number.trim()
+      if (!admissionNum) {
+        toast.error('Admission number is required')
+        setSaving(false)
+        return
+      }
+      const { data: existing } = await supabase
         .from('elders')
-        .select('id', { count: 'exact' })
-        .eq('admission_branch_id', form.admission_branch_id)
-      const seq = (count ?? 0) + 1
-      const admissionNumber = generateAdmissionNumber(branch?.name ?? 'LD', seq)
+        .select('id')
+        .eq('admission_number', admissionNum)
+      if (existing && existing.length > 0) {
+        toast.error('Admission number already exists')
+        setSaving(false)
+        return
+      }
 
       const { data: newElder, error } = await supabase
         .from('elders')
@@ -135,6 +143,8 @@ export function ElderForm({ mode }: ElderFormProps) {
           age: parseInt(form.age),
           gender: form.gender,
           date_of_birth: form.date_of_birth || null,
+          police_memo_number: form.police_memo_number.trim() || null,
+          referred_by: form.referred_by.trim() || null,
           address: form.address.trim(),
           phone: form.phone.trim(),
           emergency_contact_name: form.emergency_contact_name.trim(),
@@ -143,7 +153,7 @@ export function ElderForm({ mode }: ElderFormProps) {
           admission_branch_id: form.admission_branch_id,
           current_branch_id: form.admission_branch_id,
           admission_date: form.admission_date,
-          admission_number: admissionNumber,
+          admission_number: admissionNum,
           status: 'active',
           photo_url: photoUrl || null,
           created_by: user?.id,
@@ -163,10 +173,10 @@ export function ElderForm({ mode }: ElderFormProps) {
         action: 'CREATE_ELDER',
         entity_type: 'elder',
         entity_id: newElder.id,
-        details: { name: form.name, admission_number: admissionNumber },
+        details: { name: form.name, admission_number: admissionNum },
       })
 
-      toast.success(`Elder admitted successfully! Admission No: ${admissionNumber}`)
+      toast.success(`Elder admitted successfully! Admission No: ${admissionNum}`)
       navigate(`/elders/${newElder.id}`)
     } else {
       const { error } = await supabase
@@ -176,6 +186,8 @@ export function ElderForm({ mode }: ElderFormProps) {
           age: parseInt(form.age),
           gender: form.gender,
           date_of_birth: form.date_of_birth || null,
+          police_memo_number: form.police_memo_number.trim() || null,
+          referred_by: form.referred_by.trim() || null,
           address: form.address.trim(),
           phone: form.phone.trim(),
           emergency_contact_name: form.emergency_contact_name.trim(),
@@ -364,6 +376,33 @@ export function ElderForm({ mode }: ElderFormProps) {
             </CardContent>
           </Card>
 
+          {/* Reference & Police */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                Reference & Police Memo
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Referred By</Label>
+                <Input
+                  value={form.referred_by}
+                  onChange={(e) => set('referred_by', e.target.value)}
+                  placeholder="e.g. Self, NGO Partner, Police..."
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Police Memo Number</Label>
+                <Input
+                  value={form.police_memo_number}
+                  onChange={(e) => set('police_memo_number', e.target.value)}
+                  placeholder="Police memo / FIR reference"
+                />
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Medical Notes */}
           <Card>
             <CardHeader className="pb-3">
@@ -390,6 +429,16 @@ export function ElderForm({ mode }: ElderFormProps) {
                 </CardTitle>
               </CardHeader>
               <CardContent className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Admission Number *</Label>
+                  <Input
+                    required
+                    value={form.admission_number}
+                    onChange={(e) => set('admission_number', e.target.value)}
+                    placeholder="e.g. LD-PAR-2026-0001"
+                  />
+                  <p className="text-xs text-muted-foreground">Must be unique across the organization</p>
+                </div>
                 <div className="space-y-2">
                   <Label>Admission Branch *</Label>
                   <Select

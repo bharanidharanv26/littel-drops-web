@@ -10,6 +10,8 @@ import {
   LogOut,
   Heart,
   ChevronRight,
+  ClipboardCheck,
+  Upload,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
@@ -46,6 +48,12 @@ const NAV_ITEMS: NavItem[] = [
     requiredRole: ['founder', 'staff'],
   },
   {
+    label: 'Requests',
+    icon: <ClipboardCheck size={18} />,
+    to: '/requests',
+    requiredRole: ['founder', 'trustee'],
+  },
+  {
     label: 'Reports',
     icon: <FileBarChart2 size={18} />,
     to: '/reports',
@@ -54,6 +62,12 @@ const NAV_ITEMS: NavItem[] = [
     label: 'Users',
     icon: <UserCog size={18} />,
     to: '/users',
+    requiredRole: ['founder'],
+  },
+  {
+    label: 'Import',
+    icon: <Upload size={18} />,
+    to: '/import',
     requiredRole: ['founder'],
   },
   {

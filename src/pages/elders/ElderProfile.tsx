@@ -12,6 +12,9 @@ import {
   Building2,
   Stethoscope,
   AlertCircle,
+  Shield,
+  UserCheck,
+  MoreHorizontal,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { TopBar } from '@/components/layout/TopBar'
@@ -20,11 +23,21 @@ import { StatusBadge } from '@/components/shared/StatusBadge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import { formatDate } from '@/lib/utils'
 import { getInitials } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
 import type { Elder, Transfer, Death } from '@/types'
+import { toast } from 'sonner'
 import { DeathRecordDialog } from './DeathRecordDialog'
 
 export function ElderProfile() {
@@ -37,6 +50,8 @@ export function ElderProfile() {
   const [death, setDeath] = useState<Death | null>(null)
   const [loading, setLoading] = useState(true)
   const [deathDialogOpen, setDeathDialogOpen] = useState(false)
+  const [returnHomeDialogOpen, setReturnHomeDialogOpen] = useState(false)
+  const [otherOutcomeDialogOpen, setOtherOutcomeDialogOpen] = useState(false)
 
   useEffect(() => {
     if (id) fetchAll(id)
@@ -88,6 +103,8 @@ export function ElderProfile() {
     )
   }
 
+  const isActive = elder.status === 'active'
+
   return (
     <div className="animate-fade-in">
       <TopBar title={elder.name} subtitle={`ID: ${elder.admission_number}`} />
@@ -97,7 +114,7 @@ export function ElderProfile() {
             <ArrowLeft size={16} />
             Back
           </Button>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             {canWrite && (
               <Link to={`/elders/${elder.id}/edit`}>
                 <Button variant="outline" size="sm">
@@ -106,7 +123,7 @@ export function ElderProfile() {
                 </Button>
               </Link>
             )}
-            {canWrite && elder.status === 'active' && (
+            {canWrite && isActive && (
               <Link to={`/transfers?elder=${elder.id}`}>
                 <Button variant="outline" size="sm">
                   <ArrowLeftRight size={14} />
@@ -114,14 +131,22 @@ export function ElderProfile() {
                 </Button>
               </Link>
             )}
-            {(canWrite || isFounder) && elder.status === 'active' && (
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => setDeathDialogOpen(true)}
-              >
+            {(canWrite || isFounder) && isActive && (
+              <Button variant="destructive" size="sm" onClick={() => setDeathDialogOpen(true)}>
                 <Heart size={14} />
                 Record Death
+              </Button>
+            )}
+            {(canWrite || isFounder) && isActive && (
+              <Button variant="outline" size="sm" onClick={() => setReturnHomeDialogOpen(true)}>
+                <UserCheck size={14} />
+                Return Home
+              </Button>
+            )}
+            {(canWrite || isFounder) && isActive && (
+              <Button variant="outline" size="sm" onClick={() => setOtherOutcomeDialogOpen(true)}>
+                <MoreHorizontal size={14} />
+                Other Outcome
               </Button>
             )}
           </div>
@@ -143,6 +168,11 @@ export function ElderProfile() {
                     <h2 className="text-2xl font-bold">{elder.name}</h2>
                     <p className="text-sm text-muted-foreground font-mono mt-0.5">
                       {elder.admission_number}
+                      {elder.serial_number && (
+                        <span className="ml-2 text-muted-foreground/70">
+                          (S.No: {elder.serial_number})
+                        </span>
+                      )}
                     </p>
                   </div>
                   <StatusBadge status={elder.status} />
@@ -196,6 +226,15 @@ export function ElderProfile() {
               <InfoRow icon={<Building2 size={14} />} label="Admission Branch" value={elder.admission_branch?.name} />
               <InfoRow icon={<Calendar size={14} />} label="Admission Date" value={formatDate(elder.admission_date)} />
               <InfoRow icon={<User size={14} />} label="Admission Number" value={elder.admission_number} mono />
+              {elder.serial_number && (
+                <InfoRow icon={<User size={14} />} label="Serial Number" value={String(elder.serial_number)} mono />
+              )}
+              {elder.police_memo_number && (
+                <InfoRow icon={<Shield size={14} />} label="Police Memo No." value={elder.police_memo_number} />
+              )}
+              {elder.referred_by && (
+                <InfoRow icon={<UserCheck size={14} />} label="Referred By" value={elder.referred_by} />
+              )}
             </CardContent>
           </Card>
         </div>
@@ -219,7 +258,7 @@ export function ElderProfile() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Transfer Timeline
+              History Timeline
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -251,7 +290,26 @@ export function ElderProfile() {
                   isLast
                 />
               )}
-              {!death && transfers.length === 0 && (
+              {elder.status === 'returned_home' && (
+                <TimelineEvent
+                  date={elder.created_at}
+                  label="Returned Home"
+                  description="Returned to family/home"
+                  subtext={elder.outcome_reason ?? undefined}
+                  type="return_home"
+                  isLast
+                />
+              )}
+              {elder.status === 'other' && (
+                <TimelineEvent
+                  date={elder.created_at}
+                  label="Other Outcome"
+                  description={elder.outcome_reason || 'Other outcome recorded'}
+                  type="other"
+                  isLast
+                />
+              )}
+              {!death && transfers.length === 0 && elder.status === 'active' && (
                 <p className="text-sm text-muted-foreground pl-8">
                   No transfers recorded. Currently at {elder.current_branch?.name}.
                 </p>
@@ -281,15 +339,43 @@ export function ElderProfile() {
             </CardContent>
           </Card>
         )}
+
+        {/* Outcome Reason for returned_home/other */}
+        {(elder.status === 'returned_home' || elder.status === 'other') && elder.outcome_reason && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                {elder.status === 'returned_home' ? 'Return Home Details' : 'Other Outcome Details'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm">
+              <InfoRow icon={<AlertCircle size={14} />} label="Reason" value={elder.outcome_reason} />
+            </CardContent>
+          </Card>
+        )}
       </div>
 
-      {elder.status === 'active' && (
-        <DeathRecordDialog
-          elder={elder}
-          open={deathDialogOpen}
-          onOpenChange={setDeathDialogOpen}
-          onSuccess={() => fetchAll(elder.id)}
-        />
+      {isActive && (
+        <>
+          <DeathRecordDialog
+            elder={elder}
+            open={deathDialogOpen}
+            onOpenChange={setDeathDialogOpen}
+            onSuccess={() => fetchAll(elder.id)}
+          />
+          <ReturnHomeDialog
+            elder={elder}
+            open={returnHomeDialogOpen}
+            onOpenChange={setReturnHomeDialogOpen}
+            onSuccess={() => fetchAll(elder.id)}
+          />
+          <OtherOutcomeDialog
+            elder={elder}
+            open={otherOutcomeDialogOpen}
+            onOpenChange={setOtherOutcomeDialogOpen}
+            onSuccess={() => fetchAll(elder.id)}
+          />
+        </>
       )}
     </div>
   )
@@ -329,19 +415,23 @@ function TimelineEvent({
   label: string
   description: string
   subtext?: string
-  type: 'admission' | 'transfer' | 'death'
+  type: 'admission' | 'transfer' | 'death' | 'return_home' | 'other'
   isLast?: boolean
 }) {
   const color = {
     admission: 'bg-blue-500',
     transfer: 'bg-amber-500',
     death: 'bg-red-500',
+    return_home: 'bg-green-500',
+    other: 'bg-purple-500',
   }[type]
 
   const textColor = {
     admission: 'text-blue-600',
     transfer: 'text-amber-600',
     death: 'text-red-600',
+    return_home: 'text-green-600',
+    other: 'text-purple-600',
   }[type]
 
   return (
@@ -361,5 +451,138 @@ function TimelineEvent({
         {subtext && <p className="text-xs text-muted-foreground mt-0.5">{subtext}</p>}
       </div>
     </div>
+  )
+}
+
+// ─── Return Home Dialog ──────────────────────────────────────────────────────
+
+function ReturnHomeDialog({
+  elder,
+  open,
+  onOpenChange,
+  onSuccess,
+}: {
+  elder: Elder
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSuccess: () => void
+}) {
+  const [returnDate, setReturnDate] = useState(new Date().toISOString().split('T')[0])
+  const [remarks, setRemarks] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function handleSave() {
+    setSaving(true)
+    const { error } = await supabase.rpc('record_return_home', {
+      p_elder_id: elder.id,
+      p_return_date: returnDate,
+      p_remarks: remarks.trim() || null,
+    })
+    if (error) {
+      toast.error(error.message)
+      setSaving(false)
+      return
+    }
+    toast.success('Return home recorded successfully')
+    setSaving(false)
+    onOpenChange(false)
+    onSuccess()
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Record Return Home</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-2">
+            <Label>Elder</Label>
+            <Input value={`${elder.name} (${elder.admission_number})`} disabled />
+          </div>
+          <div className="space-y-2">
+            <Label>Return Date *</Label>
+            <Input type="date" value={returnDate} onChange={(e) => setReturnDate(e.target.value)} required />
+          </div>
+          <div className="space-y-2">
+            <Label>Remarks (Optional)</Label>
+            <Textarea rows={3} value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Reason or notes" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving || !returnDate}>
+            {saving ? 'Saving...' : 'Confirm Return Home'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ─── Other Outcome Dialog ────────────────────────────────────────────────────
+
+function OtherOutcomeDialog({
+  elder,
+  open,
+  onOpenChange,
+  onSuccess,
+}: {
+  elder: Elder
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSuccess: () => void
+}) {
+  const [reason, setReason] = useState('')
+  const [outcomeDate, setOutcomeDate] = useState(new Date().toISOString().split('T')[0])
+  const [saving, setSaving] = useState(false)
+
+  async function handleSave() {
+    if (!reason.trim()) return
+    setSaving(true)
+    const { error } = await supabase.rpc('record_other_outcome', {
+      p_elder_id: elder.id,
+      p_reason: reason.trim(),
+      p_outcome_date: outcomeDate,
+    })
+    if (error) {
+      toast.error(error.message)
+      setSaving(false)
+      return
+    }
+    toast.success('Other outcome recorded')
+    setSaving(false)
+    onOpenChange(false)
+    onSuccess()
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Record Other Outcome</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-2">
+            <Label>Elder</Label>
+            <Input value={`${elder.name} (${elder.admission_number})`} disabled />
+          </div>
+          <div className="space-y-2">
+            <Label>Outcome Date *</Label>
+            <Input type="date" value={outcomeDate} onChange={(e) => setOutcomeDate(e.target.value)} required />
+          </div>
+          <div className="space-y-2">
+            <Label>Reason / Description *</Label>
+            <Textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Describe the outcome" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving || !reason.trim()}>
+            {saving ? 'Saving...' : 'Confirm Outcome'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
